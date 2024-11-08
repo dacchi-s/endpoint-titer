@@ -20,6 +20,8 @@ You can install the required packages by running:
 pip install -r requirements.txt
 ```
 
+For conda users:
+
 ```conda environment
 conda env create -f endpoint_titer.yml
 
