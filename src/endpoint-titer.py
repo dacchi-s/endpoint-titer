@@ -31,15 +31,64 @@ def set_japanese_font():
     return jp_font
 
 def four_pl(x, A, B, C, D):
-    """4-parameter logistic regression"""
+    """4-Parameter Logistic Regression"""
     return D + (A-D)/(1.0+((x/C)**B))
 
 def five_pl(x, A, B, C, D, E):
-    """5-parameter logistic regression"""
+    """5-Parameter Logistic Regression"""
     return D + (A-D)/(1.0+((x/C)**B))**E
 
+
+def load_data(file_path, sheet_name='Sheet1', encoding='utf-8'):
+    """
+    Function to load data from Excel or CSV files
+    
+    Parameters:
+    -----------
+    file_path : str or Path
+        Input file path (Excel or CSV)
+    sheet_name : str
+        Sheet name for Excel files
+    encoding : str
+        CSV file encoding (default: utf-8)
+        
+    Returns:
+    --------
+    pd.DataFrame
+        Loaded data
+    """
+    file_path = Path(file_path)
+    file_extension = file_path.suffix.lower()
+    
+    if file_extension in ['.xlsx', '.xls']:
+        # Load Excel file
+        wb = openpyxl.load_workbook(file_path)
+        sheet = wb[sheet_name]
+        data = []
+        for row in sheet.iter_rows(values_only=True):
+            data.append(row)
+        df = pd.DataFrame(data)
+    elif file_extension == '.csv':
+        # Load CSV file
+        try:
+            df = pd.read_csv(file_path, header=None, encoding=encoding)
+        except UnicodeDecodeError:
+            # Try with CP932 (Windows Japanese) if UTF-8 fails
+            if encoding == 'utf-8':
+                df = pd.read_csv(file_path, header=None, encoding='cp932')
+            else:
+                raise
+        
+        # Format CSV data to match Excel format
+        if len(df.columns) < 13:
+            raise ValueError("CSV file must have at least 13 columns (sample name + 12 data points")
+    else:
+        raise ValueError(f"Unsupported file format: {file_extension}")
+    
+    return df
+
 def evaluate_dilution_rates(dilution_rates):
-    """Evaluate dilution rates and convert them to numeric values"""
+    """Evaluate and convert dilution rates to numerical values"""
     evaluated_rates = []
     for i, rate in enumerate(dilution_rates):
         if isinstance(rate, (int, float)):
@@ -56,21 +105,21 @@ def evaluate_dilution_rates(dilution_rates):
                     try:
                         evaluated_rates.append(float(eval(rate[1:])))
                     except:
-                        print(f"Warning: Could not evaluate the value '{rate}'.")
+                        print(f"Warning: Could not evaluate value '{rate}'")
                         return None
             else:
                 try:
                     evaluated_rates.append(float(rate))
                 except ValueError:
-                    print(f"Warning: Could not convert the value '{rate}' to a number.")
+                    print(f"Warning: Could not convert value '{rate}' to number")
                     return None
         else:
-            print(f"Warning: Unknown type for value '{rate}'.")
+            print(f"Warning: Unknown type of value '{rate}'")
             return None
     return evaluated_rates
 
 def calculate_fit_metrics(y_true, y_pred, n_params):
-    """Calculate quality metrics for fitting"""
+    """Calculate fitting quality metrics"""
     n = len(y_true)
     residuals = y_true - y_pred
     rss = np.sum(residuals**2)
@@ -91,7 +140,7 @@ def calculate_fit_metrics(y_true, y_pred, n_params):
     }
 
 def get_initial_params(y_data, dilution_rates):
-    """Estimate optimized initial parameters"""
+    """Optimized initial parameter estimation"""
     A_init = np.max(y_data) * 1.05
     D_init = np.min(y_data) * 0.95
     B_init = 1.0
@@ -111,7 +160,7 @@ def get_initial_params(y_data, dilution_rates):
     }
 
 def fit_curve(x_data, y_data, method, init_params, verbose=False):
-    """Run and evaluate curve fitting"""
+    """Execute and evaluate curve fitting"""
     try:
         if method == '4':
             bounds = ([0, 0.5, 0, 0], [np.inf, 10, np.inf, np.inf])
@@ -129,30 +178,30 @@ def fit_curve(x_data, y_data, method, init_params, verbose=False):
         metrics = calculate_fit_metrics(y_data, y_fit, n_params)
         
         if verbose:
-            print("\nFitting results:")
+            print("\nFitting Results:")
             print(f"  R² = {metrics['R2']:.4f}")
             print(f"  Adjusted R² = {metrics['Adjusted_R2']:.4f}")
             print(f"  RMSE = {metrics['RMSE']:.4e}")
             if metrics['R2'] < 0.99:
-                print("  Warning: R² is less than 0.99. Check the quality of fitting.")
+                print("  Warning: R² is below 0.99. Please check fitting quality.")
 
         return popt, pcov, metrics, y_fit
 
     except RuntimeError as e:
         raise RuntimeError(f"Fitting failed: {str(e)}")
 
-def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff, method, replicates=2, verbose=False, log_path=None):
+def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff, method, replicates=2, verbose=False, log_path=None, encoding='utf-8'):
     """
-    Function to process ELISA data and calculate titer
+    Process ELISA data and calculate titers
     
     Parameters:
     -----------
     file_path : str
-        Path to the input Excel file
+        Path to input file (Excel or CSV)
     sheet_name : str
-        Name of the sheet to process
+        Sheet name for Excel files
     output_path : str
-        Path to the output Excel file
+        Path to output Excel file
     cutoff : float
         Cutoff value
     method : str
@@ -162,7 +211,9 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
     verbose : bool
         Whether to display detailed output
     log_path : str, optional
-        Path to the log file
+        Path to log file
+    encoding : str
+        Encoding for CSV files (default: utf-8)
     """
     # Open log file
     log_file = open(log_path, 'w', encoding='utf-8') if log_path and verbose else None
@@ -182,49 +233,45 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
     try:
         if verbose:
             log_print(f"Processing started: {file_path}")
+            log_print(f"File format: {Path(file_path).suffix.lower()}")
             log_print(f"Method: {method}PL fitting")
             log_print(f"Cutoff value: {cutoff}")
             log_print(f"Number of technical replicates: {replicates}")
 
-        # Load the workbook and sheet
-        wb = openpyxl.load_workbook(file_path)
-        sheet = wb[sheet_name]
+        # Load data
+        df = load_data(file_path, sheet_name, encoding)
         
+        # Create output Excel file
         output_wb = openpyxl.Workbook()
         results_sheet = output_wb.active
         results_sheet.title = "Results"
         plots_sheet = output_wb.create_sheet("Plots")
-        
-        data = []
-        for row in sheet.iter_rows(values_only=True):
-            data.append(row)
-        df = pd.DataFrame(data)
 
         if verbose:
-            log_print("\nDetails of data loading:")
-            log_print(f"Total number of rows: {len(df)}")
+            log_print("\nData loading details:")
+            log_print(f"Total rows: {len(df)}")
             log_print("First few rows:")
             log_print(df.head())
 
-        # Get dilution rates from the first row
+        # Get dilution rates from first row
         dilution_rates = df.iloc[0, 1:13].values
         if verbose:
             log_print(f"\nFound dilution rates: {dilution_rates}")
 
         evaluated_rates = evaluate_dilution_rates(dilution_rates)
         if evaluated_rates is None:
-            raise ValueError("Invalid value in dilution rate data.")
+            raise ValueError("Dilution rate data contains invalid values.")
         
         dilution_rates = np.array(evaluated_rates, dtype=float)
 
         if verbose:
             log_print(f"Evaluated dilution rates: {dilution_rates}")
 
-        # Sample data starts from the third row
+        # Sample data starts from third row
         sample_names = df.iloc[2:, 0].values
         df_data = df.iloc[2:, 1:13]
 
-        # Detect data blocks based on the number of replicates
+        # Detect data blocks (based on number of replicates)
         blocks = []
         row = 0
         while row < len(df_data):
@@ -237,13 +284,13 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                     row += 1
             except Exception as e:
                 if verbose:
-                    log_print(f"Error processing row {row}: {str(e)}")
+                    log_print(f"Error while processing row {row}: {str(e)}")
                 row += 1
 
         if verbose:
             log_print(f"\nDetected data blocks:")
             for i, (start, end) in enumerate(blocks):
-                log_print(f"Block {i+1}: Rows {start+1} to {end+1}")
+                log_print(f"Block {i+1}: rows {start+1} to {end+1}")
 
         if not blocks:
             raise ValueError("No valid data blocks found.")
@@ -254,12 +301,12 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
         
         for block_idx, (start_row, end_row) in enumerate(blocks):
             if verbose:
-                log_print(f"\nStarting to process Block {block_idx+1}:")
+                log_print(f"\nStarting processing of block {block_idx+1}:")
                 log_print(f"Row range: {start_row+1} to {end_row+1}")
 
             block_data = df_data.iloc[start_row:end_row+1]
 
-            # Adjust data processing based on replicates
+            # Adjust data processing based on number of replicates
             for sample_idx in range(0, end_row - start_row + 1, replicates):
                 try:
                     # Get replicate data
@@ -268,7 +315,7 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                     y_data = replicate_numeric.mean().values
 
                     if verbose:
-                        log_print(f"\n  Processing Sample {sample_idx//replicates + 1}:")
+                        log_print(f"\n  Processing sample {sample_idx//replicates + 1}:")
                         log_print(f"  Data: {y_data}")
 
                     if np.isnan(y_data).any():
@@ -280,7 +327,7 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                     if verbose:
                         log_print(f"Processing sample: {sample_name}")
                         process_rows = [start_row + sample_idx + i + 1 for i in range(replicates)]
-                        log_print(f"Data used: Average of rows {', '.join(map(str, process_rows))}")
+                        log_print(f"Using data: average of rows {', '.join(map(str, process_rows))}")
 
                     init_params = get_initial_params(y_data, dilution_rates)
 
@@ -329,7 +376,7 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                                 popt, metrics, y_fit = popt_5pl, metrics_5pl, y_fit_5pl
                                 final_method = '5'
                             else:
-                                raise RuntimeError("Both fittings failed")
+                                raise RuntimeError("Both fitting methods failed")
 
                         titer = np.interp(cutoff, y_fit[::-1], dilution_rates[::-1])
 
@@ -346,23 +393,30 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                         # Set the appropriate font before plotting
                         jp_font = set_japanese_font()
 
-                        # Use the same sample name for the graph title
+                        # Plot using the same sample name
+                        replicate_numeric = replicate_data.apply(pd.to_numeric, errors='coerce')
+                        y_data = replicate_numeric.mean().values
+                        y_errors = replicate_numeric.sem().values if replicates > 1 else np.zeros_like(y_data)
+
                         plt.figure(figsize=(10, 6))
-                        plt.semilogx(dilution_rates, y_data, 'o', label='Observed values')
+                        plt.errorbar(dilution_rates, y_data, 
+                                    yerr=y_errors,
+                                    fmt='o', label='Measured values',
+                                    capsize=5)
                         plt.semilogx(dilution_rates, y_fit, '-', label='Fitting curve')
                         plt.axhline(y=cutoff, color='r', linestyle='--', label='Cutoff')
                         plt.axvline(x=titer, color='g', linestyle='--', label='Antibody titer')
-                        plt.xlabel('Dilution rate', fontproperties=jp_font)
-                        plt.ylabel('Absorbance', fontproperties=jp_font)
-                        plt.title(f'{sample_name} ({final_method}PL fitting)', fontproperties=jp_font)
-                        plt.legend(prop=jp_font)
+                        plt.xlabel('Dilution rate')
+                        plt.ylabel('Absorbance')
+                        plt.title(f'{sample_name} ({final_method}PL fitting)')
+                        plt.legend()
                         plt.grid(True)
 
                         # Save plot to memory
                         img_buffer = io.BytesIO()
                         plt.savefig(img_buffer, format='png', dpi=300)
 
-                        # Save as a separate PNG file
+                        # Save as individual PNG file
                         plot_dir = Path(output_path).parent / 'plots'
                         if not os.path.exists(plot_dir):
                             os.makedirs(plot_dir)
@@ -370,28 +424,21 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
                         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
                         plt.close()
 
-                        # Position plot in Excel
-                        base_row = 30  # Set start row to 30
-                        row_spacing = 30  # Set row spacing between plots to 30
-                        row_position = base_row + (block_idx * 4 + pair_idx // 2) * row_spacing
+                        # Place plot in Excel
+                        img = Image(img_buffer)
+                        img.width = 600
+                        img.height = 400
+                        plots_sheet.cell(row=row_position-1, column=1, value=sample_name)
+                        plots_sheet.add_image(img, f'A{row_position}')
 
-                        # Position plot
-                        if row_position >= 1:
-                            # Add plot to Excel
-                            img = Image(img_buffer)
-                            img.width = 600
-                            img.height = 400
-                            plots_sheet.cell(row=row_position-1, column=1, value=sample_name)
-                            plots_sheet.add_image(img, f'A{row_position}')
-
-                            if verbose:
-                                log_print(f"Plot positioning: Placed sample {sample_name} at row {row_position}")
+                        if verbose:
+                            log_print(f"Plot placement: Sample {sample_name} placed at row {row_position}")
 
                     except Exception as e:
                         log_print(f"Warning: Error during fitting for {sample_name}: {str(e)}")
                 
                 except Exception as e:
-                    log_print(f"Warning: Error processing Block {block_idx+1}, Pair {pair_idx//2+1}: {str(e)}")
+                    log_print(f"Warning: Error processing block {block_idx+1}, pair {pair_idx//2+1}: {str(e)}")
 
         # Write results to Results sheet
         for i, col in enumerate(results_df.columns):
@@ -428,11 +475,20 @@ def process_data_and_calculate_titer(file_path, sheet_name, output_path, cutoff,
 def parse_args():
     parser = argparse.ArgumentParser(
         description='ELISA Analysis Tool - Optimized Version',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Input file formats:
+  - Excel (.xlsx, .xls)
+  - CSV (.csv)
+    
+Note: 
+  - Both formats require dilution rates in row 1 and data from row 3 onwards
+  - CSV files must have at least 13 columns (sample name + 12 data points)
+  - Output is always in Excel (.xlsx) format"""
     )
     
     parser.add_argument('--input', '-i', required=True,
-                       help='Input Excel file')
+                       help='Input file (Excel or CSV)')
     
     parser.add_argument('--cutoff', '-c', type=float, required=True,
                        help='Cutoff value')
@@ -448,6 +504,9 @@ def parse_args():
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Display detailed output')
     
+    parser.add_argument('--encoding', '-e', default='utf-8',
+                       help='CSV file encoding (default: utf-8)')
+    
     return parser.parse_args()
 
 def main():
@@ -455,27 +514,63 @@ def main():
     
     try:
         input_path = Path(args.input)
+        
+        # Check input file existence
+        if not input_path.exists():
+            print(f"Error: File '{input_path}' not found", file=sys.stderr)
+            return 1
+
+        # Check file format
+        if input_path.suffix.lower() not in ['.xlsx', '.xls', '.csv']:
+            print(f"Error: Unsupported file format: {input_path.suffix}", file=sys.stderr)
+            print("Supported formats: .xlsx, .xls, .csv", file=sys.stderr)
+            return 1
+        
+        # Generate output filename (output in xlsx format even for CSV input)
         output_path = input_path.parent / f'results_{input_path.stem}.xlsx'
         
+        # Set log file path
         log_path = None
         if args.verbose:
             log_path = input_path.parent / f'analysis_log_{input_path.stem}.txt'
         
-        num_samples = process_data_and_calculate_titer(
-            args.input,
-            'Sheet1',
-            output_path,
-            args.cutoff,
-            args.method,
-            args.replicates,
-            args.verbose,
-            log_path
-        )
+        # Set sheet name based on file format
+        sheet_name = 'Sheet1' if input_path.suffix.lower() in ['.xlsx', '.xls'] else None
         
-        print(f"Processing complete: {num_samples} samples analyzed")
-        print(f"Results saved to {output_path}")
-        if args.verbose:
-            print(f"Analysis log saved to {log_path}")
+        try:
+            num_samples = process_data_and_calculate_titer(
+                args.input,
+                sheet_name,
+                output_path,
+                args.cutoff,
+                args.method,
+                args.replicates,
+                args.verbose,
+                log_path,
+                encoding=args.encoding
+            )
+            
+            print(f"Processing complete: Analyzed {num_samples} samples")
+            print(f"Results saved to {output_path}")
+            if args.verbose:
+                print(f"Analysis log saved to {log_path}")
+            
+        except UnicodeDecodeError as e:
+            print(f"Encoding error: {str(e)}", file=sys.stderr)
+            print("Please specify appropriate encoding using --encoding option", file=sys.stderr)
+            print("Example: -e shift-jis or -e cp932", file=sys.stderr)
+            return 1
+            
+        except ValueError as e:
+            print(f"Error: {str(e)}", file=sys.stderr)
+            return 1
+            
+        except Exception as e:
+            print(f"Unexpected error occurred: {str(e)}", file=sys.stderr)
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+            return 1
         
     except Exception as e:
         print(f"Error occurred: {str(e)}", file=sys.stderr)
